@@ -12,6 +12,10 @@ import { AuthEvent } from '../src/features/auth/auth-event.model.js';
 import { Identity, OAuthState } from '../src/features/auth/oauth.model.js';
 import { hashCode } from '../src/features/auth/auth.crypto.js';
 import type { AuthSettings } from '../src/features/auth/auth.types.js';
+import { AuthEventType, AuthProvider } from '../src/features/auth/auth.enums.js';
+import { existsSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
 
 const settings: AuthSettings = {
   jwtSecret: 'integration-jwt-secret-at-least-32-characters',
@@ -27,7 +31,18 @@ const account = { name: 'Jane Doe', email: 'jane@example.com', password: 'Passwo
 let mongo: MongoMemoryServer;
 
 before(async () => {
-  mongo = await MongoMemoryServer.create();
+  let systemBinary = process.env.MONGOMS_SYSTEM_BINARY;
+  if (!systemBinary && process.platform === 'win32') {
+    const root = join(process.env.ProgramFiles ?? 'C:/Program Files', 'MongoDB', 'Server');
+    if (existsSync(root)) {
+      systemBinary = readdirSync(root).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
+        .map(version => join(root, version, 'bin', 'mongod.exe')).find(path => existsSync(path));
+    }
+  }
+  const version = systemBinary
+    ? execFileSync(systemBinary, ['--version'], { encoding: 'utf8', windowsHide: true }).match(/db version v([\d.]+)/)?.[1]
+    : undefined;
+  mongo = await MongoMemoryServer.create({ binary: { systemBinary, ...(version ? { version } : {}) } });
   await mongoose.connect(mongo.getUri());
   await Promise.all([User.init(), Session.init(), AuthEvent.init(), Identity.init(), OAuthState.init()]);
 });
@@ -68,8 +83,8 @@ test('registration, verification, login, user-type selection and username login 
   assert.equal(onboarding.body.user.nextStep, 'dashboard');
   assert.equal((await request(app).post('/api/v1/auth/login').send({ identifier: 'jane_doe', password: account.password })).status, 200);
   assert.equal((await request(app).post('/api/v1/auth/onboarding').auth(session.access, { type: 'bearer' }).send({ userType: 'employer' })).status, 409);
-  assert.ok(await AuthEvent.exists({ type: 'registration_succeeded' }));
-  assert.ok(await AuthEvent.exists({ type: 'login_succeeded' }));
+  assert.ok(await AuthEvent.exists({ type: AuthEventType.RegistrationSucceeded }));
+  assert.ok(await AuthEvent.exists({ type: AuthEventType.LoginSucceeded }));
 });
 
 test('unverified accounts and incorrect passwords cannot sign in', async () => {
@@ -203,7 +218,7 @@ test('Google OAuth uses PKCE, creates a verified normal user, and rejects state 
   const user = await User.findOne({ email: 'google@example.com' });
   assert.equal(user?.role, 'user');
   assert.ok(user?.emailVerifiedAt);
-  assert.equal(await Identity.countDocuments({ provider: 'google' }), 1);
+  assert.equal(await Identity.countDocuments({ provider: AuthProvider.Google }), 1);
   assert.equal((await request(providerApp).get(path).set('Cookie', cookie)).status, 400);
 });
 

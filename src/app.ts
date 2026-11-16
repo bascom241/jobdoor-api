@@ -6,6 +6,7 @@ import { createAuthRouter } from './features/auth/auth.routes.js';
 import { createSessionRouter } from './features/auth/session.routes.js';
 import type { AuthSettings, SendMail } from './features/auth/auth.types.js';
 import { HttpError } from './shared/http-error.js';
+import { createDocsRouter } from './docs/docs.routes.js';
 
 export function createApp(deps: RegistrationDependencies, webOrigin: string, auth?: { settings: AuthSettings; sendMail: SendMail }) {
   const app = express();
@@ -13,6 +14,7 @@ export function createApp(deps: RegistrationDependencies, webOrigin: string, aut
   app.use(helmet());
   app.use(cors({ origin: webOrigin, credentials: true }));
   app.use(express.json({ limit: '16kb' }));
+  app.use('/api', createDocsRouter(Boolean(auth)));
   app.use('/api/v1/auth', createAuthRouter(deps));
   if (auth) app.use('/api/v1/auth', createSessionRouter(auth.settings, auth.sendMail));
   app.use((_req, res) => { res.status(404).json({ message: 'Route not found' }); });

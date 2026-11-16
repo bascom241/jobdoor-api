@@ -36,7 +36,7 @@ export class AuthService {
     }, {
       $set: { status: AccountStatus.Active, emailVerifiedAt: new Date() },
       $unset: { verificationTokenHash: 1, verificationExpiresAt: 1 },
-    }, { new: true });
+    }, { returnDocument: 'after' });
     if (!user) {
       await User.updateOne({
         email, status: AccountStatus.PendingVerification,
@@ -108,7 +108,7 @@ export class AuthService {
     }, {
       $set: { refreshHash: hashToken(newToken) },
       $push: { previousRefreshHashes: oldHash },
-    }, { new: true });
+    }, { returnDocument: 'after' });
     if (!session) {
       // Reusing a rotated refresh token invalidates its entire session.
       await Session.updateOne({ previousRefreshHashes: oldHash, revokedAt: null }, { revokedAt: new Date() });
@@ -186,7 +186,7 @@ export class AuthService {
       user = await User.findOneAndUpdate({ _id: userId, onboardingCompletedAt: null }, { $set: {
         userType, role: userType === UserType.JobSeeker ? UserRole.Candidate : UserRole.User,
         onboardingCompletedAt: new Date(), ...(username ? { username } : {}),
-      } }, { new: true, runValidators: true });
+      } }, { returnDocument: 'after', runValidators: true });
     } catch (error) {
       if (typeof error === 'object' && error && 'code' in error && error.code === 11000) {
         throw new HttpError(409, 'Username is unavailable');
